@@ -47,6 +47,7 @@ class BatchAnalyze:
                 layout_res = self.model.layout_model(image, ignore_catids=[])
                 images_layout_res.append(layout_res)
         elif self.model.layout_model_name == MODEL_NAME.DocLayout_YOLO:
+            # 版面分析
             # doclayout_yolo
             layout_images = []
             for image_index, image in enumerate(images):
