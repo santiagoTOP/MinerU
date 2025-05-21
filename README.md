@@ -48,6 +48,10 @@ Easier to use: Just grab MinerU Desktop. No coding, no login, just a simple inte
 </div>
 
 # Changelog
+- 2025/04/29 1.3.10 Released
+  - Support for custom formula delimiters can be achieved by modifying the `latex-delimiter-config` item in the `magic-pdf.json` file under the user directory.
+- 2025/04/27 1.3.9 Released  
+  - Optimized the formula parsing function to improve the success rate of formula rendering
 - 2025/04/23 1.3.8 Released
   - The default `ocr` model (`ch`) has been updated to `PP-OCRv4_server_rec_doc` (model update required)
     - `PP-OCRv4_server_rec_doc` is trained on a mix of more Chinese document data and PP-OCR training data, enhancing recognition capabilities for some traditional Chinese characters, Japanese, and special characters. It supports over 15,000 recognizable characters, improving text recognition in documents while also boosting general text recognition.
@@ -349,7 +353,7 @@ There are three different ways to experience MinerU:
     </tr>
     <tr>
         <td colspan="3">Python Version</td>
-        <td colspan="3">>=3.10</td>
+        <td colspan="3">3.10~3.13</td>
     </tr>
     <tr>
         <td colspan="3">Nvidia Driver Version</td>
@@ -359,8 +363,7 @@ There are three different ways to experience MinerU:
     </tr>
     <tr>
         <td colspan="3">CUDA Environment</td>
-        <td>11.8/12.4/12.6/12.8</td>
-        <td>11.8/12.4/12.6/12.8</td>
+        <td colspan="2"><a href="https://pytorch.org/get-started/locally/">Refer to the PyTorch official website</a></td>
         <td>None</td>
     </tr>
     <tr>
@@ -374,7 +377,7 @@ There are three different ways to experience MinerU:
         <td colspan="2">GPU VRAM 6GB or more</td>
         <td colspan="2">All GPUs with Tensor Cores produced from Volta(2017) onwards.<br>
         More than 6GB VRAM </td>
-        <td rowspan="2">apple slicon</td>
+        <td rowspan="2">Apple silicon</td>
     </tr>
 </table>
 
@@ -391,7 +394,7 @@ Synced with dev branch updates:
 #### 1. Install magic-pdf
 
 ```bash
-conda create -n mineru 'python>=3.10' -y
+conda create -n mineru 'python=3.12' -y
 conda activate mineru
 pip install -U "magic-pdf[full]"
 ```
