@@ -51,3 +51,9 @@ _build/
 
 
 output/
+
+mineru.egg-info/
+
+uv.lock
+
+pyproject.toml
