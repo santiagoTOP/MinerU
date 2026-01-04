@@ -156,21 +156,54 @@ def read_text_file_with_encoding_detection(file_path: str) -> str:
         
         logger.info(f"检测到文件编码: {encoding} (置信度: {confidence:.2f})")
         
-        # 如果置信度太低，尝试常见编码
-        if confidence < 0.7:
-            logger.warning("编码检测置信度较低，尝试常见编码")
-            for enc in ['utf-8', 'gbk', 'gb2312', 'utf-16']:
-                try:
-                    with open(file_path, "r", encoding=enc) as f:
-                        content = f.read()
-                    logger.info(f"成功使用编码 {enc} 读取文件")
-                    return content
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
-            raise RuntimeError(f"无法确定文件 {file_path} 的编码格式")
+        # 定义编码尝试顺序
+        # 如果检测到gb2312，优先尝试gbk（因为gbk是gb2312的超集）
+        encoding_candidates = []
+        if confidence >= 0.7:
+            # 置信度高时，优先使用检测到的编码
+            encoding_candidates.append(encoding)
+            # 如果检测到gb2312，添加gbk作为备选（gbk包含gb2312）
+            if encoding.lower() in ['gb2312', 'gb18030']:
+                encoding_candidates.append('gbk')
+            # 如果检测到gbk，添加gb18030作为备选
+            elif encoding.lower() == 'gbk':
+                encoding_candidates.append('gb18030')
         else:
-            with open(file_path, "r", encoding=encoding) as f:
-                return f.read()
+            logger.warning("编码检测置信度较低，尝试常见编码")
+        
+        # 添加常见编码作为备选
+        common_encodings = ['utf-8', 'gbk', 'gb18030', 'gb2312', 'utf-16', 'latin1']
+        for enc in common_encodings:
+            if enc not in encoding_candidates:
+                encoding_candidates.append(enc)
+        
+        # 尝试使用各种编码读取文件
+        last_error = None
+        for enc in encoding_candidates:
+            try:
+                with open(file_path, "r", encoding=enc) as f:
+                    content = f.read()
+                logger.info(f"成功使用编码 {enc} 读取文件")
+                return content
+            except (UnicodeDecodeError, UnicodeError) as e:
+                last_error = e
+                continue
+        
+        # 如果所有编码都失败，尝试使用errors='ignore'或errors='replace'
+        logger.warning("所有编码尝试失败，使用errors='replace'模式")
+        for enc in ['utf-8', 'gbk', 'latin1']:
+            try:
+                with open(file_path, "r", encoding=enc, errors='replace') as f:
+                    content = f.read()
+                logger.warning(f"使用编码 {enc} (errors='replace') 读取文件，部分字符可能丢失")
+                return content
+            except Exception:
+                continue
+        
+        # 最后的备选方案：使用latin1（不会失败，但可能乱码）
+        logger.error("所有编码尝试均失败，使用latin1编码（可能产生乱码）")
+        with open(file_path, "r", encoding='latin1', errors='replace') as f:
+            return f.read()
     
     except Exception as e:
         logger.error(f"读取文件失败: {e}")
@@ -811,6 +844,226 @@ class ExcelParser(DocumentParser):
         """创建Markdown表格分隔线"""
         return "| " + " | ".join(["---"] * num_columns) + " |\n"
 
+class HTMLParser(DocumentParser):
+    """HTML文档解析器"""
+    
+    def parse(self, file_path: str, output_dir: str) -> Optional[str]:
+        """
+        解析 HTML 文件，转换为 Markdown
+        
+        Args:
+            file_path: HTML 文件路径
+            output_dir: 输出目录路径
+            
+        Returns:
+            str: 生成的 Markdown 文件路径，失败时返回 None
+        """
+        try:
+            # 验证输入文件
+            if not os.path.exists(file_path):
+                raise FileNotFoundError(f"输入文件不存在: {file_path}")
+            
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext not in ['.html', '.htm']:
+                raise ValueError(f"不支持的文件格式: {file_ext}")
+            
+            # 创建输出目录
+            file_name = os.path.splitext(os.path.basename(file_path))[0]
+            doc_dir = os.path.join(output_dir, file_name)
+            image_dir = os.path.join(doc_dir, "images")
+            os.makedirs(image_dir, exist_ok=True)
+            
+            # 读取HTML内容
+            html_content = read_text_file_with_encoding_detection(file_path)
+            
+            # 转换为Markdown
+            md_content = self._html_to_markdown(html_content, file_path, image_dir)
+            
+            # 保存Markdown文件
+            md_filename = f"{file_name}.md"
+            md_path = os.path.join(doc_dir, md_filename)
+            
+            with open(md_path, 'w', encoding='utf-8') as f:
+                f.write(md_content)
+            
+            logger.info(f"✅ HTML解析完成: {md_path}")
+            return md_path
+            
+        except Exception as e:
+            logger.error(f"❌ HTML解析失败: {str(e)}")
+            return None
+    
+    def _html_to_markdown(self, html_content: str, source_path: str, image_dir: str) -> str:
+        """
+        将HTML内容转换为Markdown格式
+        
+        Args:
+            html_content: HTML内容字符串
+            source_path: 源HTML文件路径（用于解析相对路径的图片）
+            image_dir: 图片保存目录
+            
+        Returns:
+            str: Markdown格式的内容
+        """
+        try:
+            from bs4 import BeautifulSoup
+            import html2text
+            
+            # 使用BeautifulSoup解析HTML
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # 处理图片 - 下载或复制到本地
+            self._process_html_images(soup, source_path, image_dir)
+            
+            # 移除script和style标签
+            for tag in soup(['script', 'style', 'meta', 'link']):
+                tag.decompose()
+            
+            # 使用html2text转换为Markdown
+            h = html2text.HTML2Text()
+            h.ignore_links = False  # 保留链接
+            h.ignore_images = False  # 保留图片
+            h.ignore_emphasis = False  # 保留强调
+            h.body_width = 0  # 不限制行宽
+            h.unicode_snob = True  # 使用Unicode字符
+            h.skip_internal_links = False  # 不跳过内部链接
+            h.inline_links = True  # 使用内联链接格式
+            h.protect_links = True  # 保护链接
+            h.mark_code = True  # 标记代码块
+            
+            # 转换HTML为Markdown
+            markdown_content = h.handle(str(soup))
+            
+            # 清理多余的空行
+            markdown_content = re.sub(r'\n\s*\n\s*\n', '\n\n', markdown_content)
+            
+            return markdown_content.strip()
+            
+        except ImportError as e:
+            logger.error("缺少必要的库，请安装: pip install beautifulsoup4 html2text")
+            raise ImportError("请安装 beautifulsoup4 和 html2text 库") from e
+        except Exception as e:
+            logger.error(f"HTML转Markdown失败: {e}")
+            raise
+    
+    def _process_html_images(self, soup, source_path: str, image_dir: str) -> None:
+        """
+        处理HTML中的图片，下载或复制到本地
+        
+        Args:
+            soup: BeautifulSoup对象
+            source_path: 源HTML文件路径
+            image_dir: 图片保存目录
+        """
+        image_counter = 1
+        source_dir = os.path.dirname(os.path.abspath(source_path))
+        
+        for img_tag in soup.find_all('img'):
+            try:
+                img_src = img_tag.get('src', '')
+                if not img_src:
+                    continue
+                
+                # 处理不同类型的图片源
+                local_img_path = None
+                
+                # 处理base64图片
+                if img_src.startswith('data:image'):
+                    local_img_path = self._save_base64_image(img_src, image_dir, image_counter)
+                
+                # 处理HTTP/HTTPS图片
+                elif img_src.startswith(('http://', 'https://')):
+                    local_img_path = self._download_image(img_src, image_dir, image_counter)
+                
+                # 处理本地相对路径图片
+                else:
+                    abs_img_path = os.path.join(source_dir, img_src)
+                    if os.path.exists(abs_img_path):
+                        local_img_path = self._copy_local_image(abs_img_path, image_dir, image_counter)
+                
+                # 更新图片标签
+                if local_img_path:
+                    relative_path = os.path.join("images", os.path.basename(local_img_path))
+                    img_tag['src'] = relative_path
+                    image_counter += 1
+                    
+            except Exception as e:
+                logger.warning(f"处理图片失败 {img_src}: {e}")
+                continue
+    
+    def _save_base64_image(self, data_url: str, image_dir: str, counter: int) -> Optional[str]:
+        """保存base64编码的图片"""
+        try:
+            import base64
+            
+            # 解析data URL
+            header, encoded = data_url.split(',', 1)
+            
+            # 获取图片格式
+            img_format = 'png'
+            if 'jpeg' in header or 'jpg' in header:
+                img_format = 'jpg'
+            elif 'gif' in header:
+                img_format = 'gif'
+            elif 'webp' in header:
+                img_format = 'webp'
+            
+            # 解码并保存
+            img_data = base64.b64decode(encoded)
+            img_path = os.path.join(image_dir, f"image_{counter}.{img_format}")
+            
+            with open(img_path, 'wb') as f:
+                f.write(img_data)
+            
+            logger.debug(f"保存base64图片: {img_path}")
+            return img_path
+            
+        except Exception as e:
+            logger.warning(f"保存base64图片失败: {e}")
+            return None
+    
+    def _download_image(self, url: str, image_dir: str, counter: int) -> Optional[str]:
+        """下载网络图片"""
+        try:
+            response = requests.get(url, timeout=10, stream=True)
+            response.raise_for_status()
+            
+            # 推断图片格式
+            content_type = response.headers.get('content-type', '')
+            img_format = 'png'
+            if 'jpeg' in content_type or 'jpg' in content_type:
+                img_format = 'jpg'
+            elif 'gif' in content_type:
+                img_format = 'gif'
+            elif 'webp' in content_type:
+                img_format = 'webp'
+            
+            img_path = os.path.join(image_dir, f"image_{counter}.{img_format}")
+            
+            with open(img_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            logger.debug(f"下载图片成功: {img_path}")
+            return img_path
+            
+        except Exception as e:
+            logger.warning(f"下载图片失败 {url}: {e}")
+            return None
+    
+    def _copy_local_image(self, src_path: str, image_dir: str, counter: int) -> Optional[str]:
+        """复制本地图片"""
+        try:
+            img_ext = os.path.splitext(src_path)[1] or '.png'
+            img_path = os.path.join(image_dir, f"image_{counter}{img_ext}")
+            
+            shutil.copy2(src_path, img_path)
+            logger.debug(f"复制本地图片: {img_path}")
+            return img_path
+            
+        except Exception as e:
+            logger.warning(f"复制本地图片失败 {src_path}: {e}")
+            return None
 
 class PDFConverter:
     """PDF转换器"""
@@ -1345,6 +1598,32 @@ def main():
 
                     except Exception as e:
                         logger.error(f"Word文件处理失败: {e}")
+                        fail_count += 1
+                        continue
+
+                # 在 main() 函数的文件类型判断部分添加:
+                elif file_extension in [".html", ".htm"]:
+                    try:
+                        with timer("HTML文件处理"):
+                            html_parser = HTMLParser()
+                            temp_path = html_parser.parse(downloaded_file_path, output_dir)
+                            
+                            # 保留原始的后缀：xxx.md -> xxx.html.md
+                            original_filename = Path(downloaded_file_path).name
+                            result_path = os.path.join(output_dir, original_filename + ".md")
+                            shutil.move(temp_path, result_path)
+                            
+                            # 删除temp_path文件夹
+                            file_path = os.path.join(output_dir, original_filename.split(".")[0])
+                            if os.path.exists(file_path):
+                                shutil.rmtree(file_path)
+                            
+                            # 清理Markdown内容
+                            with timer("内容清理"):
+                                clean_markdown_content(result_path)
+                                
+                    except Exception as e:
+                        logger.error(f"HTML文件处理失败: {e}")
                         fail_count += 1
                         continue
 
