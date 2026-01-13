@@ -265,13 +265,13 @@ if __name__ == '__main__':
             doc_path_list.append(doc_path)
 
     """如果您由于网络问题无法下载模型，可以设置环境变量MINERU_MODEL_SOURCE为modelscope使用免代理仓库下载模型"""
-    # os.environ['MINERU_MODEL_SOURCE'] = "modelscope"
+    os.environ['MINERU_MODEL_SOURCE'] = "modelscope"
 
     """Use hybrid mode and local computing power to parse documents"""
-    parse_doc(doc_path_list, output_dir, backend="hybrid-auto-engine")
+    # parse_doc(doc_path_list, output_dir, backend="hybrid-auto-engine")
 
     """Other backends for parsing documents, you can uncomment and try"""
     # parse_doc(doc_path_list, output_dir, backend="pipeline")  # more general.
-    # parse_doc(doc_path_list, output_dir, backend="vlm-auto-engine")  # high accuracy via local computing power.
+    parse_doc(doc_path_list, output_dir, backend="vlm-auto-engine")  # high accuracy via local computing power.
     # parse_doc(doc_path_list, output_dir, backend="vlm-http-client", server_url="http://127.0.0.1:30000")  # high accuracy via remote computing power(client suitable for openai-compatible servers).
     # parse_doc(doc_path_list, output_dir, backend="hybrid-http-client", server_url="http://127.0.0.1:30000")  # high accuracy but requires a little local computing power(client suitable for openai-compatible servers).
