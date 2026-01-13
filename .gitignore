@@ -13,7 +13,7 @@ __pycache__
 *.pyc
 .vscode
 debug/
-*.ipynb
+# *.ipynb
 .idea
 
 # vscode history
